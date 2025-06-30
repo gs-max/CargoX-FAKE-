@@ -113,6 +113,7 @@ contract BookingLedger is AccessControl {
             amendment.status = AmendmentStatus.AMENDMENT_CONFIRMED;
             booking.status = BookingStatus.CONFIRMED;
             booking.details = amendment.newsDetails;
+            amendment.reason = reason;
             emit AmendmentConfirmed(amendment.amendmentId, amendment.bookingId);
             return "Amendment confirmed";
         } else {
