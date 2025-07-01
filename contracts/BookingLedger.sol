@@ -25,7 +25,9 @@ contract BookingLedger is AccessControl {
     event AmendmentConfirmed(bytes32 indexed bookingId, bytes32 indexed amendmentId);
     event AmendmentDeclined(bytes32 indexed bookingId, bytes32 indexed amendmentId, string reason);
     event AmendmentCancelled(bytes32 indexed bookingId, bytes32 indexed amendmentId);
-    
+    event Withdrawn(address indexed treasuryAddress, uint256 amount);
+    error InsufficientFee(uint256 requiredFee, uint256 sentFee);
+    error IncorrectAddress(address treasuryAddress, address senderAddress);
 
     enum BookingStatus {
         CONFIRMED,
@@ -59,6 +61,8 @@ contract BookingLedger is AccessControl {
 
     mapping (bytes32 => Booking) public bookings;
     mapping (bytes32 => Amendment) public amendments;
+    uint256 public bookingFee;
+    address payable public treasury;
     constructor() {
             _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
             _grantRole(CARRIER_ROLE, msg.sender);
@@ -69,7 +73,10 @@ contract BookingLedger is AccessControl {
         _grantRole(SHIPPER_ROLE, shipperAddress);
     }
 
-    function createBooking(string calldata details) public onlyRole(SHIPPER_ROLE) returns(bytes32 bookingId){
+    function createBooking(string calldata details) public payable onlyRole(SHIPPER_ROLE) returns(bytes32 bookingId){
+        if(msg.value < bookingFee){
+            revert InsufficientFee(bookingFee, msg.value);
+        }
         Booking memory booking;
         booking.bookingId = bytes32(bookingCount++);
         booking.shipper = msg.sender;
@@ -143,4 +150,24 @@ contract BookingLedger is AccessControl {
         }
         return detailsList;
     }
+
+    function setBookingFee(uint256 _bookingFee) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        bookingFee = _bookingFee;
+    }
+
+    function setTreasury(address payable _treasury) public onlyRole(DEFAULT_ADMIN_ROLE){
+        treasury = _treasury;
+    }
+    function withdraw() public onlyRole(DEFAULT_ADMIN_ROLE){
+        bool success;
+        if(treasury != msg.sender){
+            revert IncorrectAddress(treasury, msg.sender);
+        }
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No balance to withdraw");
+        (success, ) = payable(msg.sender).call{value:balance}("");
+        require(success, "tx fialed");
+        emit Withdrawn(msg.sender, balance);
+    }
+
 }

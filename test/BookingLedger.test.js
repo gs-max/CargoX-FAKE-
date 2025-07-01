@@ -13,6 +13,8 @@ describe("BookingLedger", function () {
         captureBookingId = "";
         const bookingLedgerDeployment = await deployments.get("BookingLedger");
         bookingLedger = await ethers.getContractAt("BookingLedger", bookingLedgerDeployment.address);
+        await bookingLedger.setTreasury(deployer.address);
+        await bookingLedger.setBookingFee(100);
     });
     /** 
         Test Case 1.1: 成功部署
@@ -56,6 +58,15 @@ describe("BookingLedger", function () {
         ).to.be.revertedWithCustomError(bookingLedger, "AccessControlUnauthorizedAccount");
     })
 
+    it("setBookingFee and setTreasury failed by non-admin", async function(){
+        await expect(bookingLedger.connect(shipper_1).setBookingFee(100))
+        .to.be.revertedWithCustomError(bookingLedger, "AccessControlUnauthorizedAccount");
+        await expect(bookingLedger.connect(shipper_1).setTreasury(shipper_1.address))
+        .to.be.revertedWithCustomError(bookingLedger, "AccessControlUnauthorizedAccount");
+    })
+
+    
+
     /* 
     测试组 2：核心流程 - 创建订舱 (Booking Creation)
         Test Case 2.1: 托运人成功创建订舱
@@ -67,7 +78,7 @@ describe("BookingLedger", function () {
         shipperBookings[shipper1] 和 carrierBookings[mainCarrier] 索引数组中都包含了这个新的 bookingId。 */
     it("Test Case 2.1: shipper_1 create booking successfully", async function () {
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         let captureBookingId;
         await expect(tx)
             .to.emit(bookingLedger, "BookingCreated")
@@ -97,10 +108,84 @@ describe("BookingLedger", function () {
     步骤: 一个未被授予 SHIPPER_ROLE 的账户尝试调用 createBooking。
     断言: 交易应失败，提示 "AccessControl: account is missing role"。*/
     it("shipper_2 create booking failed", async function(){
-        await expect(bookingLedger.connect(shipper_2).createBooking("1000 containers"))
+        await expect(bookingLedger.connect(shipper_2).createBooking("1000 containers", {value: 100}))
         .to.be.revertedWithCustomError(bookingLedger, "AccessControlUnauthorizedAccount");
     })
 
+    it("create boooking faileed by insuffeicient fee", async function(){
+        await bookingLedger.grantShipperRole(shipper_1.address);
+        await expect(bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 50}))
+        .to.be.revertedWithCustomError(bookingLedger, "InsufficientFee");
+    })
+    
+    /*it("withdraw successfully", async function(){
+        await bookingLedger.grantShipperRole(shipper_1.address);
+        await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
+
+        const treasuryAddress = await bookingLedger.treasury();
+        const balanceBefore = await treasuryAddress.balance;
+
+        const tx = await bookingLedger.withdraw();
+
+        const gasSpent = receipt.gasUsed * receipt.gasPrice;
+        
+        const balanceAfter = await ethers.provider.getBalance(treasuryAddress);
+        const contractBalanceAfter = await ethers.provider.getBalance(bookingLedger.target);
+
+        
+        assert.equal(contractBalanceAfter, 0);
+        assert.equal(deployer.balance, bookingFee - gasSpent);
+        await expect(tx)
+        .to.emit(bookingLedger, "Withdrawn").withArgs(
+            (
+                (treasuryAddress) => {
+                    console.log("捕获到treasuryAddress:", treasuryAddress);
+                    assert.equal(treasuryAddress, deployer.address);
+                    return true;
+                },
+                100
+            )
+        )
+    })*/
+    it("withdraw successfully", async function(){
+        // 准备工作：授予角色并定义费用
+        await bookingLedger.grantShipperRole(shipper_1.address);
+        const fee = 100n; // 使用 BigInt (数字后面加'n') 来处理金额，这是最佳实践
+
+        // 1. 记录提款前的状态
+        const treasuryAddress = await bookingLedger.treasury();
+        const balanceBefore = await ethers.provider.getBalance(treasuryAddress);
+        
+        // 2. 让 shipper-1 支付费用创建订单，使合约里有钱
+        await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: fee});
+        
+        // (可选) 确认合约里确实收到了钱
+        const contractBalanceBefore = await ethers.provider.getBalance(bookingLedger.target);
+        expect(contractBalanceBefore).to.equal(fee);
+
+        // 3. 执行提款操作 (由 deployer/admin 发起)
+        const tx = await bookingLedger.withdraw();
+        const receipt = await tx.wait(); // 等待交易完成并获取回执
+        
+        // 从回执中计算本次交易花费的 Gas 费用
+        const gasSpent = receipt.gasUsed * receipt.gasPrice;
+
+        // 4. 记录并断言提款后的状态
+        const balanceAfter = await ethers.provider.getBalance(treasuryAddress);
+        const contractBalanceAfter = await ethers.provider.getBalance(bookingLedger.target);
+
+        // 断言 1：合约的余额应该归零
+        expect(contractBalanceAfter).to.equal(0);
+
+        // 断言 2：收款方的余额变化应该是 (收到的钱 - 花掉的Gas)
+        // 因为 deployer 同时是交易发起方和收款方
+        expect(balanceAfter - balanceBefore).to.equal(fee - gasSpent);
+
+        // 断言 3：应该发出正确的事件和参数
+        await expect(tx)
+            .to.emit(bookingLedger, "Withdrawn")
+            .withArgs(treasuryAddress, fee);
+    })
     /**
      * 测试组 3：核心流程 - 修改请求 (Amendment Request)
      * Test Case 3.1: 原始托运人成功请求修改
@@ -113,7 +198,7 @@ describe("BookingLedger", function () {
         amendmentByBooking 索引数组中包含了这个新的 amendmentId。 */
     it("shipper_1 request amendment successfully", async function(){
         await bookingLedger.grantShipperRole(shipper_1.address);
-        await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         const bookingId = await bookingLedger.shipperBookings(shipper_1.address, 0);
         const amendmentCountBefore = await bookingLedger.amendmentCount();
         let captureAmendmentId;
@@ -153,7 +238,7 @@ describe("BookingLedger", function () {
         console.log("here")
         let captureBookingId;
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         await expect(tx).to.emit(bookingLedger,"BookingCreated").withArgs(
             (bookingId) => {
                 captureBookingId = bookingId;
@@ -180,7 +265,7 @@ describe("BookingLedger", function () {
         let captureBookingId;
         //let captureAmendmentId;
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         await expect(tx).to.emit(bookingLedger,"BookingCreated").withArgs(
             (bookingId) => {
                 captureBookingId = bookingId;
@@ -223,7 +308,7 @@ describe("BookingLedger", function () {
         修改单状态变为 AMENDMENT_CONFIRMED。*/
     it("carrier confirmed amendment, and data is updated", async function(){
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         let captureBookingId;
         let captureAmendmentId;
         await expect(tx)
@@ -291,7 +376,7 @@ describe("BookingLedger", function () {
         修改单状态变为 AMENDMENT_DECLINED，且 reason 字段被记录。*/
         it("carrier reject amendment, and data is maintained", async function(){
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         let captureBookingId;
         let captureAmendmentId;
         await expect(tx)
@@ -355,7 +440,7 @@ describe("BookingLedger", function () {
         断言: 交易应失败，提示 "AccessControl: account is missing role"。*/
     it("carrier reject amendment, and data is maintained", async function(){
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         let captureBookingId;
         let captureAmendmentId;
         await expect(tx)
@@ -408,7 +493,7 @@ describe("BookingLedger", function () {
         修改单状态变为 AMENDMENT_CANCELLED。*/
         it("carrier reject amendment, and data is maintained", async function(){
             await bookingLedger.grantShipperRole(shipper_1.address);
-            const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+            const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
             let captureBookingId;
             let captureAmendmentId;
             await expect(tx)
@@ -488,7 +573,7 @@ describe("BookingLedger", function () {
         数组中每个 Amendment 结构体的内容都与链上数据一致。*/
     it("carrier confirmed amendment, and data is updated", async function(){
         await bookingLedger.grantShipperRole(shipper_1.address);
-        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers");
+        const tx = await bookingLedger.connect(shipper_1).createBooking("1000 containers", {value: 100});
         let captureBookingId;
         let captureAmendmentId;
         let captureAmendmentId_2;
@@ -587,3 +672,5 @@ describe("BookingLedger", function () {
     })
 });
 
+
+    
