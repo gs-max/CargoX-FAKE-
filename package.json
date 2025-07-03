@@ -11,11 +11,13 @@
   "devDependencies": {
     "@chainlink/env-enc": "^1.0.5",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.3.0",
+    "axios": "^1.10.0",
     "dotenv": "^16.5.0",
     "hardhat": "^2.24.3",
-    "hardhat-deploy": "^1.0.4"
-  },
-  "dependencies": {
-    "@openzeppelin/contracts": "^5.3.0"
+    "hardhat-deploy": "^1.0.4",
+    "https": "^1.0.0",
+    "node-fetch": "^3.3.2",
+    "request": "^2.88.2"
   }
 }
