@@ -8,6 +8,15 @@ import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/
 import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
+struct BillOfLadingData {
+    string shipper;
+    string consignee;
+    string portOfloading;
+    string portOfDischarge;
+    string vesselName;
+    string cargoDescription;
+}
+
 contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Ownable {
     constructor(address initialOwner) ERC721("EBL", "ebl") Ownable(initialOwner) 
     {}
@@ -15,14 +24,7 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
     uint256 private s_tokenCounter;
     mapping (uint256 => BillOfLadingData) private s_blData;
     event BillOfLoadingIssued(uint256 indexed tokenId, address indexed owner, BillOfLadingData data);
-    struct BillOfLadingData {
-        string shipper;
-        string consignee;
-        string portOfloading;
-        string portOfDischarge;
-        string vesselName;
-        string cargoDescription;
-    }
+
     address private s_operator;
     /*function safeMint(address to, uint256 tokenId, string memory uri)
         public
@@ -41,6 +43,10 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
         emit BillOfLoadingIssued(tokenId, _owner, _data);
     }    // The following functions are overrides required by Solidity.
 
+    function mint(address newOwner, uint256 tokenId) public {
+        _safeMint(newOwner, tokenId);
+    }
+    
     modifier onlyOperator() {
         require(msg.sender == s_operator || msg.sender == owner(), "Not operator");
         _;
@@ -84,5 +90,9 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
 
     function burnFrom(uint256 _tokenId) public onlyOperator{
         _burn(_tokenId);
+    }
+
+    function getBillOfLoadingData(uint256 _tokenId) public view returns(BillOfLadingData memory){
+        return s_blData[_tokenId];
     }
 }
