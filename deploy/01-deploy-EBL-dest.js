@@ -6,13 +6,16 @@ const {deployments, getNamedAccounts} = require("hardhat");
 module.exports = async({deployments, getNamedAccounts}) => {
     const firstAccount = (await getNamedAccounts()).firstAccount;
     console.log(`firstAccount is ${firstAccount}`);
-    const{deploy} = deployments;
+    const{deploy, log} = deployments;
     console.log("Deploying EBL...");
-    await deploy("EBL", {
+    await deploy("EBL_dest", {
+        contract: "EBL",
         from: firstAccount,
         args: [firstAccount],
         log: true,
     });
+
+    log("EBL contract deployed on dest chain successfully")
 }
 
-module.exports.tags = ["all", "EBL"]
+module.exports.tags = ["all", "destChain"]

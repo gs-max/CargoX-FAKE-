@@ -2,7 +2,7 @@ pragma solidity ^0.8.27;
 
 // 引入 EBL 合约，以便 Bridge 可以调用它
 import {EBL, BillOfLadingData} from "./EBL.sol"; 
-
+import "hardhat/console.sol";
 // 引入 OpenZeppelin 的 Ownable
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -34,29 +34,35 @@ contract EBLBridge is CCIPReceiver, Ownable {
     );
     error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees);
 
-    // 我们将在这里添加状态变量和函数
+    
 
     // 构造函数
     constructor(address _router, address _link, address _eblToken) 
         CCIPReceiver(_router) 
         Ownable(msg.sender) // 将部署者设为 Owner
     {
+        // 我们将在这里初始化状态变量
         i_eblToken = EBL(_eblToken);
         i_linkToken = LinkTokenInterface(_link);
-        
-        // 我们将在这里初始化状态变量
     }
 
     function setWhitelistedSourceChain(uint64 _sourceChainSelector, address _sourceAddress) public onlyOwner {
         s_whitelistedSourceChains[_sourceChainSelector] = _sourceAddress;
     }
 
-    function crossChainTransfer(uint64 _destinationChainSelector, address _receiver, uint256 _tokenId, address _feeToken) public payable returns(bytes32 messageId){
+    function crossChainTransfer(uint64 _destinationChainSelector, address newOwner, address _receiver, uint256 _tokenId, address _feeToken) public payable returns(bytes32 messageId){
+        
+        require(i_eblToken.ownerOf(_tokenId) == msg.sender, "Caller is not the owner of the ebl");
+        console.log("tag 1");
+        i_eblToken.transferFrom(msg.sender, address(this), _tokenId);
+        console.log("tag 2");
         BillOfLadingData memory data = i_eblToken.getBillOfLoadingData(_tokenId);
+        console.log("tag 3");
         i_eblToken.burnFrom(_tokenId);
+        console.log("tag 4");
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
-            receiver:abi.encode(this.getRouter()),
-            data:abi.encode(_receiver, data),
+            receiver:abi.encode(_receiver),
+            data:abi.encode(newOwner,data,_tokenId),
             tokenAmounts: new Client.EVMTokenAmount[](0),
             extraArgs:Client._argsToBytes(
                 Client.GenericExtraArgsV2({
@@ -66,9 +72,10 @@ contract EBLBridge is CCIPReceiver, Ownable {
             ),
             feeToken:_feeToken
         });
+        console.log("tag 5");
         IRouterClient router = IRouterClient(this.getRouter());
         uint256 fees = router.getFee(_destinationChainSelector, evm2AnyMessage);
-
+        console.log("tag 6");
         
 
         if (_feeToken == address(0)){
@@ -78,10 +85,14 @@ contract EBLBridge is CCIPReceiver, Ownable {
             messageId = router.ccipSend{value: fees}(_destinationChainSelector, evm2AnyMessage);
         }else{
             LinkTokenInterface feeTokenContract = LinkTokenInterface(_feeToken);
-            if (fees > feeTokenContract.balanceOf(address(this))){
+            console.log("tag 7");
+            feeTokenContract.transferFrom(msg.sender, address(this), fees);
+            console.log("tag 8");
+            /*if (fees > feeTokenContract.balanceOf(address(this))){
             revert NotEnoughBalance(feeTokenContract.balanceOf(address(this)), fees);
-            }
+            }*/
             feeTokenContract.approve(address(router), fees);
+            console.log("tag 9");
             messageId = router.ccipSend(_destinationChainSelector, evm2AnyMessage);
         }
 
@@ -100,17 +111,39 @@ contract EBLBridge is CCIPReceiver, Ownable {
         Client.Any2EVMMessage memory message
     ) internal override {
         address sourceChainContract = s_whitelistedSourceChains[message.sourceChainSelector];
+        //首先要在白名单里面
         require(sourceChainContract != address(0), "Source chain contract not allowlisted");
+        //然后是消息的发送者必须是白名单里面的合约
         require(abi.decode(message.sender, (address)) == sourceChainContract, "Sender not allowlisted");
-       (address receiver,BillOfLadingData memory data ) = abi.decode(message.data, (address, BillOfLadingData));
-        
-        i_eblToken.issueBillOfLoading(receiver, data);
+        (address newOwner, BillOfLadingData memory data, uint256 tokenId) = abi.decode(message.data, (address, BillOfLadingData, uint256));
+        i_eblToken.remint(newOwner, tokenId, data);
         emit BillOfLadingReceived(
             message.messageId,
-            0,
+            tokenId,
             message.sourceChainSelector,
-            abi.decode(message.sender, (address))
+            newOwner
         );
+    }
+
+    function  estimateFee(uint64 _destinationChainSelector, address newOwner, address _receiver, uint256 _tokenId, address _feeToken) public viewreturns(uint256){
+        IRouterClient router = IRouterClient(this.getRouter());
+        /*require(i_eblToken.ownerOf(_tokenId) == msg.sender, "Caller is not the owner of the ebl");
+        i_eblToken.transferFrom(msg.sender, address(this), _tokenId);
+        BillOfLadingData memory data = i_eblToken.getBillOfLoadingData(_tokenId);
+        i_eblToken.burnFrom(_tokenId);*/
+        Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
+            receiver:abi.encode(_receiver),
+            data:abi.encode(newOwner,BillOfLadingData("", "", "", "", "", ""),_tokenId),
+            tokenAmounts: new Client.EVMTokenAmount[](0),
+            extraArgs:Client._argsToBytes(
+                Client.GenericExtraArgsV2({
+                    gasLimit:200_000,
+                    allowOutOfOrderExecution:true
+                })
+            ),
+            feeToken:_feeToken
+        });
+        return router.getFee(_destinationChainSelector, evm2AnyMessage);
     }
 
 

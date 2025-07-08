@@ -24,8 +24,8 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
     uint256 private s_tokenCounter;
     mapping (uint256 => BillOfLadingData) private s_blData;
     event BillOfLoadingIssued(uint256 indexed tokenId, address indexed owner, BillOfLadingData data);
-
-    address private s_operator;
+    event Remint(uint256 indexed tokenId, address indexed owner, BillOfLadingData data);
+    address public s_operator;
     /*function safeMint(address to, uint256 tokenId, string memory uri)
         public
         onlyOwner
@@ -42,7 +42,11 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
         
         emit BillOfLoadingIssued(tokenId, _owner, _data);
     }    // The following functions are overrides required by Solidity.
-
+    function remint(address _owner, uint256 _tokenId, BillOfLadingData calldata _data) public onlyOperator{
+        _safeMint(_owner, _tokenId);
+        s_blData[_tokenId] = _data;
+        emit Remint(_tokenId, _owner, _data);
+    }
     function mint(address newOwner, uint256 tokenId) public {
         _safeMint(newOwner, tokenId);
     }
@@ -88,7 +92,7 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
         return super.supportsInterface(interfaceId);
     }
 
-    function burnFrom(uint256 _tokenId) public onlyOperator{
+    function burnFrom(uint256 _tokenId) public {
         _burn(_tokenId);
     }
 
