@@ -22,6 +22,7 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
     {}
 
     uint256 private s_tokenCounter;
+    event OperatorSet(address indexed newOperator);
     mapping (uint256 => BillOfLadingData) private s_blData;
     event BillOfLoadingIssued(uint256 indexed tokenId, address indexed owner, BillOfLadingData data);
     event Remint(uint256 indexed tokenId, address indexed owner, BillOfLadingData data);
@@ -57,7 +58,9 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
     }
 
     function setOperator(address _operator) public onlyOwner{
+        require(_operator != address(0), "Invalid operator");
         s_operator = _operator;
+        emit OperatorSet(_operator);
     }
     function _update(address to, uint256 tokenId, address auth)
         internal
@@ -92,8 +95,12 @@ contract EBL is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, Owna
         return super.supportsInterface(interfaceId);
     }
 
-    function burnFrom(uint256 _tokenId) public {
-        _burn(_tokenId);
+    function burnFrom(uint256 _tokenId) public onlyOperator{
+        _burnForOperator(_tokenId);
+    }
+    function _burnForOperator(uint256 tokenId) internal {
+        // 调用 ERC721 最底层的 _burn，它不包含复杂的权限检查
+        super._burn(tokenId);
     }
 
     function getBillOfLoadingData(uint256 _tokenId) public view returns(BillOfLadingData memory){

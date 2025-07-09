@@ -19,6 +19,11 @@ module.exports = async({deployments, getNamedAccounts}) => {
         destChainRouter = networkConfig[network.config.chainId].router
         linkTokenAddr = networkConfig[network.config.chainId].linkToken
     }
+
+    const dstdeployment = await deployments.get("EBLBridge_dest");
+    const dstbridge = await ethers.getContractAt("EBLBridge", dstdeployment.address, signer);
+    await dstbridge.setWhitelistedSourceChain(networkConfig[network.config.chainId].companionChainSelector, sourceChainbridge.target);
+
     const eblDeployment = await deployments.get("EBL_dest");
     const eblAdder = eblDeployment.address;
 

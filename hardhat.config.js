@@ -17,7 +17,7 @@ module.exports = {
   networks: {
     sepolia: {
       url: "https://sepolia.infura.io/v3/6e70e7012c0d43a6876f838bb8d08833",
-      accounts: [PRIVATE_KEY_1],
+      accounts: [PRIVATE_KEY_1, PRIVATE_KEY_2, PRIVATE_KEY_3],
       chainId: 11155111,
       blockConfirmations:6,
       companionNetworks:{
@@ -25,7 +25,7 @@ module.exports = {
     }},
     amoy:{
       url:AMOY_URL,
-      accounts:[PRIVATE_KEY_1],
+      accounts:[PRIVATE_KEY_1, PRIVATE_KEY_2, PRIVATE_KEY_3],
       chainId:80002,
       blockConfirmations:6,
       companionNetworks:{
@@ -50,4 +50,6 @@ module.exports = {
       default: 2,
     }
   },
+
+
 };

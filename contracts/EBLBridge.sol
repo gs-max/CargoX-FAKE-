@@ -37,13 +37,13 @@ contract EBLBridge is CCIPReceiver, Ownable {
     
 
     // 构造函数
-    constructor(address _router, address _link, address _eblToken) 
+    constructor(address _router, address _eblToken) 
         CCIPReceiver(_router) 
         Ownable(msg.sender) // 将部署者设为 Owner
     {
         // 我们将在这里初始化状态变量
         i_eblToken = EBL(_eblToken);
-        i_linkToken = LinkTokenInterface(_link);
+        //i_linkToken = LinkTokenInterface(_link);
     }
 
     function setWhitelistedSourceChain(uint64 _sourceChainSelector, address _sourceAddress) public onlyOwner {
@@ -51,32 +51,25 @@ contract EBLBridge is CCIPReceiver, Ownable {
     }
 
     function crossChainTransfer(uint64 _destinationChainSelector, address newOwner, address _receiver, uint256 _tokenId, address _feeToken) public payable returns(bytes32 messageId){
-        
         require(i_eblToken.ownerOf(_tokenId) == msg.sender, "Caller is not the owner of the ebl");
-        console.log("tag 1");
         i_eblToken.transferFrom(msg.sender, address(this), _tokenId);
-        console.log("tag 2");
         BillOfLadingData memory data = i_eblToken.getBillOfLoadingData(_tokenId);
-        console.log("tag 3");
         i_eblToken.burnFrom(_tokenId);
-        console.log("tag 4");
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver:abi.encode(_receiver),
             data:abi.encode(newOwner,data,_tokenId),
             tokenAmounts: new Client.EVMTokenAmount[](0),
             extraArgs:Client._argsToBytes(
                 Client.GenericExtraArgsV2({
-                    gasLimit:200_000,
+                    gasLimit:500_000,
                     allowOutOfOrderExecution:true
                 })
             ),
             feeToken:_feeToken
         });
-        console.log("tag 5");
         IRouterClient router = IRouterClient(this.getRouter());
         uint256 fees = router.getFee(_destinationChainSelector, evm2AnyMessage);
-        console.log("tag 6");
-        
+        console.log("Calculated fees:", fees);
 
         if (_feeToken == address(0)){
             if(msg.value < fees){
@@ -84,15 +77,12 @@ contract EBLBridge is CCIPReceiver, Ownable {
             }
             messageId = router.ccipSend{value: fees}(_destinationChainSelector, evm2AnyMessage);
         }else{
+
             LinkTokenInterface feeTokenContract = LinkTokenInterface(_feeToken);
-            console.log("tag 7");
+            uint256 allowance = feeTokenContract.allowance(msg.sender, address(this));
+            require(allowance >= fees, "Insufficient LINK allowance for the bridge");
             feeTokenContract.transferFrom(msg.sender, address(this), fees);
-            console.log("tag 8");
-            /*if (fees > feeTokenContract.balanceOf(address(this))){
-            revert NotEnoughBalance(feeTokenContract.balanceOf(address(this)), fees);
-            }*/
             feeTokenContract.approve(address(router), fees);
-            console.log("tag 9");
             messageId = router.ccipSend(_destinationChainSelector, evm2AnyMessage);
         }
 
@@ -125,15 +115,11 @@ contract EBLBridge is CCIPReceiver, Ownable {
         );
     }
 
-    function  estimateFee(uint64 _destinationChainSelector, address newOwner, address _receiver, uint256 _tokenId, address _feeToken) public viewreturns(uint256){
-        IRouterClient router = IRouterClient(this.getRouter());
-        /*require(i_eblToken.ownerOf(_tokenId) == msg.sender, "Caller is not the owner of the ebl");
-        i_eblToken.transferFrom(msg.sender, address(this), _tokenId);
+    function  estimateFee(uint64 _destinationChainSelector, address newOwner, address _receiver, uint256 _tokenId, address _feeToken) public view returns(uint256){
         BillOfLadingData memory data = i_eblToken.getBillOfLoadingData(_tokenId);
-        i_eblToken.burnFrom(_tokenId);*/
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver:abi.encode(_receiver),
-            data:abi.encode(newOwner,BillOfLadingData("", "", "", "", "", ""),_tokenId),
+            data:abi.encode(newOwner,data,_tokenId),
             tokenAmounts: new Client.EVMTokenAmount[](0),
             extraArgs:Client._argsToBytes(
                 Client.GenericExtraArgsV2({
@@ -143,8 +129,8 @@ contract EBLBridge is CCIPReceiver, Ownable {
             ),
             feeToken:_feeToken
         });
-        return router.getFee(_destinationChainSelector, evm2AnyMessage);
+        IRouterClient router = IRouterClient(this.getRouter());
+        uint256 fees = router.getFee(_destinationChainSelector, evm2AnyMessage);
+        return fees;
     }
-
-
 }

@@ -9,6 +9,7 @@ task("check-cross").addOptionalParam("chainSelector", "chainselector of destchai
     let receiver;
     const tokenId = taskArgs.tokenid;
     const {firstAccount} = await getNamedAccounts();
+    const {secondAccount} = await getNamedAccounts();
     if(taskArgs.chainSelector){
         chainSelector = taskArgs.chainSelector;
     }else{
@@ -30,23 +31,19 @@ task("check-cross").addOptionalParam("chainSelector", "chainselector of destchai
 
     const linkTokenAddress = networkConfig[network.config.chainId].linkToken;
     const signer = await ethers.getSigner(firstAccount);
-    const linkToken = await ethers.getContractAt("LinkToken", linkTokenAddress, signer);
+    const signer2 = await ethers.getSigner(secondAccount);
+    const linkToken = await ethers.getContractAt("LinkToken", linkTokenAddress, signer2);
     const sourceChainbridgeDeployment = await deployments.get("EBLBridge_source");
-    const sourceChainbridge = await ethers.getContractAt("EBLBridge", sourceChainbridgeDeployment.address, signer);
+    const sourceChainbridge = await ethers.getContractAt("EBLBridge", sourceChainbridgeDeployment.address, signer2);
     const eblsourceDeployment = await deployments.get("EBL_source");
-    const ebl_source = await ethers.getContractAt("EBL", eblsourceDeployment.address, signer);
+    const ebl_source = await ethers.getContractAt("EBL", eblsourceDeployment.address, signer2);
+    const ebl_source_project = await ethers.getContractAt("EBL", eblsourceDeployment.address, signer);
     await ebl_source.approve(sourceChainbridge.target, tokenId);    
-    /*try {
-        const setOperatorTx = await ebl_source.setOperator(sourceChainbridge.target);
-        await setOperatorTx.wait(1);
-        console.log("✅ Operator set successfully!");
-    } catch (error) {
-        console.error("❌ Failed to set operator. Is `firstAccount` the owner of the EBL contract?");
-        console.error(error);
-        return; // 如果设置失败，后续操作无意义，直接退出
-    }*/
+    //const setOperatorTx = await ebl_source_project.setOperator(sourceChainbridge.target);
+    //await setOperatorTx.wait(1);
+    //console.log("✅ Operator set successfully!");
 
-    const fees = await sourceChainbridge.estimateFee.staticCall(chainSelector, firstAccount, receiver, tokenId, linkTokenAddress); // 假设你在桥合约里暴露了 getFee
+    const fees = await sourceChainbridge.estimateFee.staticCall(chainSelector, secondAccount, receiver, tokenId, "0x0000000000000000000000000000000000000000"); // 假设你在桥合约里暴露了 getFee
     //console.log(`Calculated fees: ${ethers.formatEther(fees)} LINK`);
 
     const approvalAmount = fees * BigInt(2); // 授权两倍的费用，以防万一
@@ -55,8 +52,9 @@ task("check-cross").addOptionalParam("chainSelector", "chainselector of destchai
     //const tx = await linkToken.transfer(sourceChainbridge.target, ethers.parseEther("5"));
     const tx = await linkToken.approve(sourceChainbridge.target, approvalAmount);
     await tx.wait(3);
-    const balance = await linkToken.balanceOf(sourceChainbridge.target);
-    console.log("balance: ", balance);
+
+    const valueToSend = fees * BigInt(110) / BigInt(100);
+    console.log(`Will send ${ethers.formatEther(valueToSend)} ETH with the transaction.`);
 
 
 
@@ -67,10 +65,10 @@ task("check-cross").addOptionalParam("chainSelector", "chainselector of destchai
     console.log("approved");
     const owner = await ebl_source.ownerOf(tokenId);
     console.log(`Owner of token ${tokenId} is: ${owner}`);
-    console.log(`Caller (firstAccount) is: ${firstAccount}`);
-    const tx2 = await sourceChainbridge.crossChainTransfer(chainSelector, firstAccount, receiver, tokenId, "0x0000000000000000000000000000000000000000",{value:ethers.parseEther("0.2")});
+    console.log(`Caller (secondAccount) is: ${secondAccount}`);
+    const tx2 = await sourceChainbridge.crossChainTransfer(chainSelector, secondAccount, receiver, tokenId, "0x0000000000000000000000000000000000000000",{value:valueToSend});
     console.log( `tx2 is ${tx2.hash}`);
-    await tx2.wait(6);
+    await tx2.wait(5);
     console.log("crossed");
 })
                         
